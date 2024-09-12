@@ -1,0 +1,235 @@
+# app.py
+from flask import Flask, render_template, request, jsonify, redirect, url_for
+import json
+import os
+
+app = Flask(__name__)
+
+CONFIG_FILE = 'config.json'
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_config(config):
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=2)
+
+@app.route('/')
+def index():
+    configs = load_config()
+    return render_template('index.html', configs=configs)
+
+@app.route('/add_config', methods=['POST'])
+def add_config():
+    data = request.json
+    configs = load_config()
+    configs[data['name']] = data['columns']
+    save_config(configs)
+    return jsonify(success=True)
+
+@app.route('/delete_config/<name>')
+def delete_config(name):
+    configs = load_config()
+    if name in configs:
+        del configs[name]
+        save_config(configs)
+    return redirect(url_for('index'))
+
+@app.route('/edit_config/<name>')
+def edit_config(name):
+    configs = load_config()
+    if name in configs:
+        return render_template('edit.html', name=name, columns=configs[name])
+    return redirect(url_for('index'))
+
+@app.route('/update_config/<name>', methods=['POST'])
+def update_config(name):
+    data = request.json
+    configs = load_config()
+    if name in configs:
+        configs[name] = data['columns']
+        save_config(configs)
+    return jsonify(success=True)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+# templates/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">Configuration Management</h1>
+        <button id="addConfigBtn" class="bg-blue-500 text-white px-4 py-2 rounded">Add New Configuration</button>
+        <table class="w-full mt-4">
+            <thead>
+                <tr>
+                    <th class="text-left">Name</th>
+                    <th class="text-left">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for name, columns in configs.items() %}
+                <tr>
+                    <td>{{ name }}</td>
+                    <td>
+                        <a href="{{ url_for('edit_config', name=name) }}" class="text-blue-500">Edit</a>
+                        <a href="{{ url_for('delete_config', name=name) }}" class="text-red-500 ml-2">Delete</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Add Configuration Modal -->
+    <div id="addConfigModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="bg-white p-4 rounded shadow-lg w-1/2 mx-auto mt-20">
+            <h2 class="text-xl font-bold mb-4">Add New Configuration</h2>
+            <input id="configName" type="text" placeholder="Configuration Name" class="w-full p-2 mb-4 border rounded">
+            <div id="columns"></div>
+            <button id="addColumnBtn" class="bg-green-500 text-white px-4 py-2 rounded mt-2">Add Column</button>
+            <button id="submitConfigBtn" class="bg-blue-500 text-white px-4 py-2 rounded mt-2 ml-2">Submit</button>
+            <button id="closeModalBtn" class="bg-red-500 text-white px-4 py-2 rounded mt-2 ml-2">Close</button>
+        </div>
+    </div>
+
+    <script>
+        // JavaScript for modal and form handling
+        const addConfigBtn = document.getElementById('addConfigBtn');
+        const addConfigModal = document.getElementById('addConfigModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const addColumnBtn = document.getElementById('addColumnBtn');
+        const submitConfigBtn = document.getElementById('submitConfigBtn');
+        const columnsDiv = document.getElementById('columns');
+
+        addConfigBtn.addEventListener('click', () => addConfigModal.classList.remove('hidden'));
+        closeModalBtn.addEventListener('click', () => addConfigModal.classList.add('hidden'));
+
+        addColumnBtn.addEventListener('click', () => {
+            const columnDiv = document.createElement('div');
+            columnDiv.innerHTML = `
+                <input type="text" placeholder="Column Name" class="p-2 border rounded">
+                <select class="p-2 border rounded">
+                    <option value="string">String</option>
+                    <option value="number">Number</option>
+                    <option value="boolean">Boolean</option>
+                </select>
+                <input type="text" placeholder="Other Details" class="p-2 border rounded">
+            `;
+            columnsDiv.appendChild(columnDiv);
+        });
+
+        submitConfigBtn.addEventListener('click', async () => {
+            const configName = document.getElementById('configName').value;
+            const columns = Array.from(columnsDiv.children).map(column => {
+                const inputs = column.getElementsByTagName('input');
+                const select = column.getElementsByTagName('select')[0];
+                return {
+                    name: inputs[0].value,
+                    type: select.value,
+                    details: inputs[1].value
+                };
+            });
+
+            const response = await fetch('/add_config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: configName, columns: columns }),
+            });
+
+            if (response.ok) {
+                window.location.reload();
+            }
+        });
+    </script>
+</body>
+</html>
+
+# templates/edit.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Configuration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">Edit Configuration: {{ name }}</h1>
+        <div id="columns">
+            {% for column in columns %}
+            <div class="mb-2">
+                <input type="text" value="{{ column.name }}" class="p-2 border rounded">
+                <select class="p-2 border rounded">
+                    <option value="string" {% if column.type == 'string' %}selected{% endif %}>String</option>
+                    <option value="number" {% if column.type == 'number' %}selected{% endif %}>Number</option>
+                    <option value="boolean" {% if column.type == 'boolean' %}selected{% endif %}>Boolean</option>
+                </select>
+                <input type="text" value="{{ column.details }}" class="p-2 border rounded">
+            </div>
+            {% endfor %}
+        </div>
+        <button id="addColumnBtn" class="bg-green-500 text-white px-4 py-2 rounded mt-2">Add Column</button>
+        <button id="updateConfigBtn" class="bg-blue-500 text-white px-4 py-2 rounded mt-2 ml-2">Update</button>
+        <a href="{{ url_for('index') }}" class="bg-gray-500 text-white px-4 py-2 rounded mt-2 ml-2 inline-block">Cancel</a>
+    </div>
+
+    <script>
+        // JavaScript for editing functionality
+        const addColumnBtn = document.getElementById('addColumnBtn');
+        const updateConfigBtn = document.getElementById('updateConfigBtn');
+        const columnsDiv = document.getElementById('columns');
+
+        addColumnBtn.addEventListener('click', () => {
+            const columnDiv = document.createElement('div');
+            columnDiv.innerHTML = `
+                <input type="text" placeholder="Column Name" class="p-2 border rounded">
+                <select class="p-2 border rounded">
+                    <option value="string">String</option>
+                    <option value="number">Number</option>
+                    <option value="boolean">Boolean</option>
+                </select>
+                <input type="text" placeholder="Other Details" class="p-2 border rounded">
+            `;
+            columnsDiv.appendChild(columnDiv);
+        });
+
+        updateConfigBtn.addEventListener('click', async () => {
+            const columns = Array.from(columnsDiv.children).map(column => {
+                const inputs = column.getElementsByTagName('input');
+                const select = column.getElementsByTagName('select')[0];
+                return {
+                    name: inputs[0].value,
+                    type: select.value,
+                    details: inputs[1].value
+                };
+            });
+
+            const response = await fetch('/update_config/{{ name }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ columns: columns }),
+            });
+
+            if (response.ok) {
+                window.location.href = "{{ url_for('index') }}";
+            }
+        });
+    </script>
+</body>
+</html>
